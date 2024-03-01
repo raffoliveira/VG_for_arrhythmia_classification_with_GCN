@@ -2,23 +2,19 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Tuple, Type
 
 from json import JSONEncoder
 from collections import defaultdict
 from scipy.io import loadmat
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
+from typing import Type, Tuple
 from tensorflow import keras
 from tensorflow.keras import layers
 from keras.utils import to_categorical
 
 
-def segmentation_signals(path: str,
-                         list_ecgs: list,
-                         size_beat_before: int,
-                         size_beat_after: int,
-                         set_name: str
+def segmentation_signals(path: str, list_ecgs: list, size_beat_before: int, size_beat_after: int, set_name: str
                          ) -> defaultdict:
 
     dict_signals_II = defaultdict(list)  # dict to load beats
@@ -33,8 +29,8 @@ def segmentation_signals(path: str,
 
         ecg_II = data["signal_r"][:, 0]  # reading lead II
 
-        if file == "114.mat":
-            ecg_II = data["signal_r"][:, 1]
+        if file == '114.mat':
+            ecg_II = data['signal_r'][:, 1]
 
         for peak, beat_type in zip(beat_peaks, beat_types):
 
@@ -65,11 +61,11 @@ def segmentation_signals(path: str,
     return dict_signals_II
 
 
-def sampling_windows_10_beats(signals_II: dict) -> dict:
+def sampling_windows_10_beats(signals_II: defaultdict) -> defaultdict:
 
     select_N_beats_II = []
 
-    for index, beat_II in enumerate(signals_II["N"], 1):
+    for index, beat_II in enumerate(signals_II['N'], 1):
         if (index % 10) == 0:
             select_N_beats_II.append(beat_II)
 
@@ -89,37 +85,25 @@ def scaling_dataset(signals_II: dict) -> Tuple[np.asarray, np.asarray, np.array]
             ecg_list.append(np.asarray(beat).reshape(-1, 1))
             ecg_labels.append(classes.index(class_))
 
-    res = compute_class_weight(class_weight="balanced", classes=np.unique(ecg_labels), y=ecg_labels)
+    res = compute_class_weight(class_weight='balanced', classes=np.unique(ecg_labels), y=ecg_labels)
     classes_weights = {}
     [classes_weights.update({i: j}) for i, j in enumerate(res)]
 
-    X = np.asarray(ecg_list).astype(np.float32).reshape(-1, 280, 1)
+    X = np.asarray(ecg_list).astype(np.float32).reshape(-1, 230, 1)
     y = np.asarray(ecg_labels).astype(np.float32).reshape(-1, 1)
     y = to_categorical(y)
 
     return X, y, classes_weights
 
 
-def building_model():
+def building_model() -> Type[keras.Model]:
 
-    input_layer = keras.Input(shape=(280, 1))
+    input_layer = keras.Input(shape=(230, 1))
 
     x = layers.Conv1D(filters=32, kernel_size=3, strides=2, activation="relu", padding="same")(input_layer)
     x = layers.BatchNormalization()(x)
 
     x = layers.Conv1D(filters=64, kernel_size=3, strides=2, activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv1D(filters=128, kernel_size=5, strides=2, activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv1D(filters=256, kernel_size=5, strides=2, activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv1D(filters=512, kernel_size=7, strides=2, activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv1D(filters=1024, kernel_size=7, strides=2, activation="relu", padding="same")(x)
     x = layers.BatchNormalization()(x)
 
     x = layers.Dropout(0.2)(x)
@@ -147,7 +131,7 @@ def plot_history_metrics(history: Type[keras.callbacks.History]) -> None:
         plt.figure(figsize=(12, 6))
         plt.plot(range(len(value)), value)
         plt.title(str(key))
-        plt.savefig(f"./images/cnn_big/{str(key)}.png",
+        plt.savefig(f'./images/small_230/{str(key)}.png',
                     dpi=600)
 
 
@@ -158,8 +142,8 @@ class NumpyFloatValuesEncoder(JSONEncoder):
         return JSONEncoder.default(self, obj)
 
 
-def training_testing(X_train: np.asarray, y_train: np.asarray, X_val: np.asarray, y_val: np.asarray,
-                     classes_weight: np.array) -> None:
+def training(X_train: np.asarray, y_train: np.asarray, X_val: np.asarray, y_val: np.asarray,
+             classes_weight: np.array) -> None:
 
     epochs = 150
     callbacks = [
@@ -192,13 +176,13 @@ def training_testing(X_train: np.asarray, y_train: np.asarray, X_val: np.asarray
                 annot=True,
                 fmt=".0f",
                 cmap="rocket_r")
-    plt.savefig(f"./images/cnn_big/confusion_matrix_cnn_big.png", dpi=600)
+    plt.savefig(f"./images/small_230/confusion_matrix_cnn_small.png", dpi=600)
 
-    with open("./images/cnn_big/report_cnn_big.txt", "w") as f:
+    with open("./images/small_230/report_cnn_small.txt", "w") as f:
         f.write(classification_report(y_true, prediction, zero_division=0))
 
-    with open("./images/cnn_big/cnn_big.txt", "w") as f:
-        f.write("TRAIN\n")
+    with open('./images/small_230/cnn_small.txt', 'w') as f:
+        f.write('TRAIN\n')
         f.write(f"Loss: {np.array(model_history.history['loss']).mean()}\n")
         f.write(f"Precision: {np.array(model_history.history['precision']).mean()}\n")
         f.write(f"Recall: {np.array(model_history.history['recall']).mean()}\n")
@@ -213,18 +197,18 @@ def training_testing(X_train: np.asarray, y_train: np.asarray, X_val: np.asarray
         f.write(f"Accuracy: {accuracy}\n")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 
-  # performing Early_Stopping to find the best number of epoch to training ML models
+    # performing Early_Stopping to find the best number of epoch to training ML models
 
-    PATH = "../../..Data"
+    PATH = "../../../Data"
     FILES = os.listdir(os.path.join(PATH, "Train"))
     FILES_VAL = ["109.mat", "114.mat", "207.mat", "223.mat"]
     FILES_TRAIN = list(set(FILES)-set(FILES_VAL))
 
     print("segmentating...")
-    train_signals_II = segmentation_signals(PATH, FILES_TRAIN, 100, 180, "Train")
-    val_signals_II = segmentation_signals(PATH, FILES_VAL, 100, 180, "Train")
+    train_signals_II = segmentation_signals(PATH, FILES_TRAIN, 100, 130, "Train")
+    val_signals_II = segmentation_signals(PATH, FILES_VAL, 100, 130, "Train")
 
     print("sampling...")
     train_signals_II = sampling_windows_10_beats(train_signals_II)
@@ -235,4 +219,4 @@ if __name__ == "__main__":
     X_test, y_test, _ = scaling_dataset(val_signals_II)
 
     print("training and testing")
-    training_testing(X_train, y_train, X_test, y_test, classes_weights)
+    training(X_train, y_train, X_test, y_test, classes_weights)

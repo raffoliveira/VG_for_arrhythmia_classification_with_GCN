@@ -75,7 +75,7 @@ def segmentation_signals(path: str, list_ecgs: list, size_beat_before: int, size
     return dict_signals_V1, dict_signals_II
 
 
-def sampling_windows_10_beats(signals: dict) -> dict:
+def sampling_windows_10_beats(signals: defaultdict) -> defaultdict:
 
     select_N_beats = []
 
@@ -152,7 +152,7 @@ def plotting_acc_loss(acc_values: list, loss_values: list, epochs: int) -> None:
     ax[1].set_xlabel("Épocas")
     ax[0].set_ylabel("Acurácia")
     ax[1].set_ylabel("Perda")
-    plt.savefig(f"./Images/acc_loss_gcn120.png", dpi=600)
+    plt.savefig(f"./Images/acc_loss_gcn60.png", dpi=600)
 
     return None
 
@@ -175,14 +175,14 @@ def plotting_confusion_matrix(true_label: np.array, pred_label: np.array) -> Non
     ax.set_title(f"Matriz de Confusão", fontsize=18)
     ax.set_xlabel("Predição", fontsize=16)
     ax.set_ylabel("Verdadeiro", fontsize=16)
-    plt.savefig(f"./Images/confusion_matrix_gcn120.png", dpi=600)
+    plt.savefig(f"./Images/confusion_matrix_gcn60.png", dpi=600)
 
     return None
 
 
 def getting_classification_report(true_label: np.array, pred_label: np.array, set_name: str):
 
-    with open(f"./Images/report_gcn120.txt", "w") as f:
+    with open(f"./Images/report_gcn60.txt", "w") as f:
         f.write(set_name)
         f.write("\n")
         f.write(classification_report(true_label, pred_label, zero_division=0))
@@ -216,7 +216,7 @@ def training(dataset_train: Type[dgl.data.DGLDataset], dataset_val: Type[dgl.dat
     train_loader = divide_into_batches(dataset_train)
     val_loader = divide_into_batches(dataset_val)
 
-    model = GCN(3, 120, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
+    model = GCN(3, 60, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
 
     # creating the optimizer
     opt = th.optim.Adam(model.parameters(), lr=0.001)
@@ -261,13 +261,12 @@ class SyntheticDataset(DGLDataset):
         self.attr_edges = attr_edges
         self.attr_properties = attr_properties
         self.attr_features = attr_features
+        self.graphs = []
+        self.labels = []
 
         super().__init__(name="synthetic")
 
     def process(self):
-
-        self.graphs = []
-        self.labels = []
 
         # Create a graph for each graph ID from the edges table.
         # First process the properties table into two dictionaries with graph IDs as keys.
@@ -314,9 +313,9 @@ class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
         self.conv1 = SAGEConv(in_feats, h_feats, "mean")
-        self.conv2 = SAGEConv(h_feats, h_feats - 80, "mean")
-        self.conv3 = SAGEConv(h_feats - 80, h_feats - 100, "mean")
-        self.conv4 = SAGEConv(h_feats - 100, num_classes, "mean")
+        self.conv2 = SAGEConv(h_feats, h_feats - 10, "mean")
+        self.conv3 = SAGEConv(h_feats - 10, h_feats - 25, "mean")
+        self.conv4 = SAGEConv(h_feats - 25, num_classes, "mean")
 
     def forward(self, g, in_feat):
         h = self.conv1(g, in_feat)
@@ -332,7 +331,7 @@ class GCN(nn.Module):
 
 if __name__ == '__main__':
 
-    PATH = "../../..Data"
+    PATH = "../../../Data"
     FILES = os.listdir(os.path.join(PATH, 'Train'))
     FILES_VAL = ['109.mat', '114.mat', '207.mat', '223.mat']
     FILES_TRAIN = list(set(FILES)-set(FILES_VAL))

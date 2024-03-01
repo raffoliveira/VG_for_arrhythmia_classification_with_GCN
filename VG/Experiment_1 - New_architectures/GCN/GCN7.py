@@ -75,7 +75,7 @@ def segmentation_signals(path: str, list_ecgs: list, size_beat_before: int, size
     return dict_signals_V1, dict_signals_II
 
 
-def sampling_windows_10_beats(signals: dict) -> dict:
+def sampling_windows_10_beats(signals: defaultdict) -> defaultdict:
 
     select_N_beats = []
 
@@ -261,13 +261,12 @@ class SyntheticDataset(DGLDataset):
         self.attr_edges = attr_edges
         self.attr_properties = attr_properties
         self.attr_features = attr_features
+        self.graphs = []
+        self.labels = []
 
         super().__init__(name="synthetic")
 
     def process(self):
-
-        self.graphs = []
-        self.labels = []
 
         # Create a graph for each graph ID from the edges table.
         # First process the properties table into two dictionaries with graph IDs as keys.
@@ -341,7 +340,7 @@ class GCN(nn.Module):
 
 if __name__ == '__main__':
 
-    PATH = "../../..Data"
+    PATH = "../../../Data"
     FILES = os.listdir(os.path.join(PATH, 'Train'))
     FILES_VAL = ['109.mat', '114.mat', '207.mat', '223.mat']
     FILES_TRAIN = list(set(FILES)-set(FILES_VAL))
