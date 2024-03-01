@@ -101,6 +101,20 @@ def normalize(data: np.ndarray) -> np.ndarray:
     return data
 
 
+def resampling_intra_patient(dataset_train: defaultdict, dataset_test: defaultdict) -> Tuple[defaultdict, defaultdict]:
+
+    classes = ['N', 'S', 'V']
+    split_num = [45847, 944, 3788]
+
+    for idx, class_ in enumerate(classes):
+        total = dataset_train[class_] + dataset_test[class_]
+        np.random.shuffle(total)
+        dataset_train[class_] = total[:split_num[idx]]
+        dataset_test[class_] = total[split_num[idx]:]
+
+    return dataset_train, dataset_test
+
+
 def sampling_windows_10_beats(signals_V1: defaultdict,
                               signals_II: defaultdict,
                               rr_interval_pos_signals: defaultdict,
@@ -384,22 +398,22 @@ class GCN(nn.Module):
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, "Test"))
-    FILES_TEST = os.listdir(os.path.join(PATH, "Train"))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, "Train"))
+    FILES_TEST = os.listdir(os.path.join(PATH, "Test"))
 
     print("segmentating...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
         segmentation_signals(PATH, FILES_TRAIN, 100, 180, "Train"))
     test_signals_V1, test_signals_II, test_rr_interval_pos_signals, test_rr_interval_pre_signals = (
         segmentation_signals(PATH, FILES_TEST, 100, 180, "Test"))
-    
+
     print("resampling_intra_patient")
     train_signals_V1, test_signals_V1 = resampling_intra_patient(train_signals_V1, test_signals_V1)
     train_signals_II, test_signals_II = resampling_intra_patient(train_signals_II, test_signals_II)
     train_rr_interval_pos_signals, test_rr_interval_pos_signals = resampling_intra_patient(train_rr_interval_pos_signals,
                                                                                            test_rr_interval_pos_signals)
     train_rr_interval_pre_signals, test_rr_interval_pre_signals = resampling_intra_patient(train_rr_interval_pre_signals,
-                
+                                                                                           test_rr_interval_pre_signals)
 
     print("sampling...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (

@@ -12,7 +12,7 @@ import igraph as ig
 
 from ts2vg import NaturalVG
 from dgl.data import DGLDataset
-from dgl.nn import GraphConv, SAGEConv
+from dgl.nn import GraphConv
 from dgl.dataloading import GraphDataLoader
 from collections import defaultdict
 from scipy.io import loadmat
@@ -101,6 +101,20 @@ def normalize(data: np.ndarray) -> np.ndarray:
     return data
 
 
+def resampling_intra_patient(dataset_train: defaultdict, dataset_test: defaultdict) -> Tuple[defaultdict, defaultdict]:
+
+    classes = ['N', 'S', 'V']
+    split_num = [45847, 944, 3788]
+
+    for idx, class_ in enumerate(classes):
+        total = dataset_train[class_] + dataset_test[class_]
+        np.random.shuffle(total)
+        dataset_train[class_] = total[:split_num[idx]]
+        dataset_test[class_] = total[split_num[idx]:]
+
+    return dataset_train, dataset_test
+
+
 def sampling_windows_10_beats(signals_V1: defaultdict,
                               signals_II: defaultdict,
                               rr_interval_pos_signals: defaultdict,
@@ -139,8 +153,8 @@ def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_inte
     for (class_, beats_V1), (_, beats_II) in zip(signals_V1.items(), signals_II.items()):
         for it, (beat_V1, beat_II) in enumerate(zip(beats_V1, beats_II)):
             [nodes_feat.append(minmax_scale(
-                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it], round(j-k, 3),
-                 round(k/np.mean(beat_II), 3)])) for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
+                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it]]))
+                for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
             features.update({graph_it: nodes_feat})
             graph_it += 1
             nodes_feat = []
@@ -195,7 +209,7 @@ def plotting_acc_loss(acc_values: list, loss_values: list, epochs: int) -> None:
     ax[1].set_xlabel("Épocas")
     ax[0].set_ylabel("Acurácia")
     ax[1].set_ylabel("Perda")
-    plt.savefig("./Images7/acc_loss_gcn7_avg.png", dpi=600)
+    plt.savefig("./Images2/acc_loss_gcn2_rr.png", dpi=600)
 
     return None
 
@@ -215,23 +229,31 @@ def plotting_confusion_matrix(true_label: np.array, pred_label: np.array) -> Non
         cmap="rocket_r",
     )
 
-    ax.set_title("Matriz de Confusão", fontsize=18)
+    ax.set_title(f"Matriz de Confusão", fontsize=18)
     ax.set_xlabel("Predição", fontsize=16)
     ax.set_ylabel("Verdadeiro", fontsize=16)
-    plt.savefig("./Images7/confusion_matrix_gcn7_avg.png", dpi=600)
+    plt.savefig(f"./Images2/confusion_matrix_gcn2_rr.png", dpi=600)
 
     return None
 
 
 def getting_classification_report(true_label: np.array, pred_label: np.array, set_name: str):
 
-    with open("./Images7/report_gcn7_avg.txt", "w") as f:
+    m = confusion_matrix(true_label, pred_label)
+    n = round(((m[1][0]+m[2][0])/((m[1][0]+m[2][0]) + (m[1][1]+m[1][2]+m[2][1]+m[2][2])))*100, 2)
+    s = round(((m[0][1]+m[2][1])/((m[0][1]+m[2][1]) + (m[0][0]+m[0][2]+m[2][0]+m[2][2])))*100, 2)
+    v = round(((m[0][2]+m[1][2])/((m[0][2]+m[1][2]) + (m[0][0]+m[0][1]+m[1][0]+m[1][1])))*100, 2)
+    pond = round(((4423/9480)*n) + ((1837/9480)*s) + ((3220/9480)*v), 2)
+
+    with open(f"./Images2/report_gcn2_rr.txt", "w") as f:
         f.write(set_name)
         f.write("\n")
         f.write(classification_report(true_label, pred_label, zero_division=0))
         f.write("\n")
-
-    return None
+        f.write(f'N: {n}\n')
+        f.write(f'S: {s}\n')
+        f.write(f'V: {v}\n')
+        f.write(f'pond: {pond}')
 
 
 def divide_into_batches(dataset: Type[th.utils.data.Dataset]) -> Type[dgl.dataloading.GraphDataLoader]:
@@ -259,7 +281,7 @@ def training(dataset_train: Type[dgl.data.DGLDataset], dataset_test: Type[dgl.da
     train_loader = divide_into_batches(dataset_train)
     test_loader = divide_into_batches(dataset_test)
 
-    model = GCN(7, 20, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
+    model = GCN(5, 20, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
 
     # creating the optimizer
     opt = th.optim.Adam(model.parameters(), lr=0.001)
@@ -355,51 +377,36 @@ class SyntheticDataset(DGLDataset):
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        self.conv1 = SAGEConv(in_feats, h_feats, "mean")
-        self.conv2 = GraphConv(h_feats, h_feats - 10)
-        self.conv3 = SAGEConv(h_feats - 10, h_feats - 20, "mean")
-        self.conv4 = SAGEConv(h_feats - 20, h_feats - 30, "mean")
-        self.conv5 = SAGEConv(h_feats - 30, h_feats - 40, "mean")
-        self.conv6 = GraphConv(h_feats - 40, h_feats - 45)
-        self.conv7 = GraphConv(h_feats - 45, num_classes)
+        self.conv1 = GraphConv(in_feats, h_feats)
+        self.conv2 = GraphConv(h_feats, num_classes)
 
     def forward(self, g, in_feat):
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
-        h = F.relu(h)
-        h = self.conv3(g, h)
-        h = F.relu(h)
-        h = self.conv4(g, h)
-        h = F.relu(h)
-        h = self.conv5(g, h)
-        h = F.relu(h)
-        h = self.conv6(g, h)
-        h = F.relu(h)
-        h = self.conv7(g, h)
-        g.ndata["h"] = h
-        return dgl.mean_nodes(g, "h")
+        g.ndata['h'] = h
+        return dgl.mean_nodes(g, 'h')
 
 
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, "Test"))
-    FILES_TEST = os.listdir(os.path.join(PATH, "Train"))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, 'Train'))
+    FILES_TEST = os.listdir(os.path.join(PATH, 'Test'))
 
     print("segmentating...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
         segmentation_signals(PATH, FILES_TRAIN, 100, 180, "Train"))
     test_signals_V1, test_signals_II, test_rr_interval_pos_signals, test_rr_interval_pre_signals = (
         segmentation_signals(PATH, FILES_TEST, 100, 180, "Test"))
-    
+
     print("resampling_intra_patient")
     train_signals_V1, test_signals_V1 = resampling_intra_patient(train_signals_V1, test_signals_V1)
     train_signals_II, test_signals_II = resampling_intra_patient(train_signals_II, test_signals_II)
     train_rr_interval_pos_signals, test_rr_interval_pos_signals = resampling_intra_patient(train_rr_interval_pos_signals,
                                                                                            test_rr_interval_pos_signals)
     train_rr_interval_pre_signals, test_rr_interval_pre_signals = resampling_intra_patient(train_rr_interval_pre_signals,
-                
+                                                                                           test_rr_interval_pre_signals)
 
     print("sampling...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
