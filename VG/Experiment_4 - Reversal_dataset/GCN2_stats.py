@@ -1,4 +1,3 @@
-from typing import Type, Tuple
 import os
 import numpy as np
 import pandas as pd
@@ -9,12 +8,15 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import seaborn as sns
 import igraph as ig
+import scipy as sp
 
+from typing import Type, Tuple
+from scipy import stats
 from ts2vg import NaturalVG
 from dgl.data import DGLDataset
 from dgl.nn import GraphConv
 from dgl.dataloading import GraphDataLoader
-from collections import defaultdict
+from collections import defaultdict, Counter
 from scipy.io import loadmat
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import minmax_scale
@@ -128,9 +130,47 @@ def sampling_windows_10_beats(signals_V1: defaultdict,
     return signals_V1, signals_II, rr_interval_pos_signals, rr_interval_pre_signals
 
 
+def calculate_entropy(beat: list):
+    counter_values = Counter(beat).most_common()
+    probabilities = [elem[1]/len(beat) for elem in counter_values]
+    entropy = sp.stats.entropy(probabilities)
+    return [round(entropy, 3)]
+
+
+def calculate_statistics(beat):
+    n5 = round(np.nanpercentile(beat, 5), 3)
+    n25 = round(np.nanpercentile(beat, 25), 3)
+    n75 = round(np.nanpercentile(beat, 75), 3)
+    n95 = round(np.nanpercentile(beat, 95), 3)
+    median = round(np.nanpercentile(beat, 50), 3)
+    mean = round(np.nanmean(beat), 3)
+    std = round(np.nanstd(beat), 3)
+    var = round(np.nanvar(beat), 3)
+    rms = round(np.nanmean(np.sqrt(beat**2)), 3)
+    kurtosis = round(stats.kurtosis(beat), 3)
+    skewness = round(stats.skew(beat), 3)
+    return [n5, n25, n75, n95, median, mean, std, var, rms, kurtosis, skewness]
+
+
+def calculate_crossings(beat):
+    # number of times a signal crosses y = 0
+    # number of times a signal crosses y = mean(y)
+    zero_crossing_indices = np.nonzero(np.diff(np.array(beat) > 0))[0]
+    no_zero_crossings = len(zero_crossing_indices)
+    mean_crossing_indices = np.nonzero(np.diff(np.array(beat) > np.nanmean(beat)))[0]
+    no_mean_crossings = len(mean_crossing_indices)
+    return [round(no_zero_crossings, 3), round(no_mean_crossings, 3)]
+
+
+def get_features(beat):
+    entropy = calculate_entropy(beat)
+    crossings = calculate_crossings(beat)
+    statistics = calculate_statistics(beat)
+    return entropy + crossings + statistics
+
+
 def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_interval_pos_signals: defaultdict,
                        rr_interval_pre_signals: defaultdict) -> dict:
-
     features = {}
     nodes_feat = []
     graph_it = 0
@@ -139,8 +179,9 @@ def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_inte
     for (class_, beats_V1), (_, beats_II) in zip(signals_V1.items(), signals_II.items()):
         for it, (beat_V1, beat_II) in enumerate(zip(beats_V1, beats_II)):
             [nodes_feat.append(minmax_scale(
-                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it]]))
-                for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
+                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it], round(j-k, 3),
+                 round(k/np.mean(beat_II), 3), round(k/np.std(beat_II), 3)] + get_features(beat_II)))
+             for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
             features.update({graph_it: nodes_feat})
             graph_it += 1
             nodes_feat = []
@@ -195,7 +236,7 @@ def plotting_acc_loss(acc_values: list, loss_values: list, epochs: int) -> None:
     ax[1].set_xlabel("Épocas")
     ax[0].set_ylabel("Acurácia")
     ax[1].set_ylabel("Perda")
-    plt.savefig("./Images2/acc_loss_gcn2_rr.png", dpi=600)
+    plt.savefig("./Images2/acc_loss_gcn2_stats.png", dpi=600)
 
     return None
 
@@ -218,14 +259,14 @@ def plotting_confusion_matrix(true_label: np.array, pred_label: np.array) -> Non
     ax.set_title("Matriz de Confusão", fontsize=18)
     ax.set_xlabel("Predição", fontsize=16)
     ax.set_ylabel("Verdadeiro", fontsize=16)
-    plt.savefig("./Images2/confusion_matrix_gcn2_rr.png", dpi=600)
+    plt.savefig("./Images2/confusion_matrix_gcn2_stats.png", dpi=600)
 
     return None
 
 
 def getting_classification_report(true_label: np.array, pred_label: np.array, set_name: str):
 
-    with open("./Images2/report_gcn2_rr.txt", "w") as f:
+    with open("./Images2/report_gcn2_stats.txt", "w") as f:
         f.write(set_name)
         f.write("\n")
         f.write(classification_report(true_label, pred_label, zero_division=0))
@@ -259,7 +300,7 @@ def training(dataset_train: Type[dgl.data.DGLDataset], dataset_test: Type[dgl.da
     train_loader = divide_into_batches(dataset_train)
     test_loader = divide_into_batches(dataset_test)
 
-    model = GCN(5, 20, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
+    model = GCN(22, 20, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
 
     # creating the optimizer
     opt = th.optim.Adam(model.parameters(), lr=0.001)
@@ -369,8 +410,8 @@ class GCN(nn.Module):
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, "Train"))
-    FILES_TEST = os.listdir(os.path.join(PATH, "Test"))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, "Test"))
+    FILES_TEST = os.listdir(os.path.join(PATH, "Train"))
 
     print("segmentating...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (

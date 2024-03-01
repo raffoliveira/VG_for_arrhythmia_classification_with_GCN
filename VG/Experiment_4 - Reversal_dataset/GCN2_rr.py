@@ -369,8 +369,8 @@ class GCN(nn.Module):
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, "Train"))
-    FILES_TEST = os.listdir(os.path.join(PATH, "Test"))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, 'Test'))
+    FILES_TEST = os.listdir(os.path.join(PATH, 'Train'))
 
     print("segmentating...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
