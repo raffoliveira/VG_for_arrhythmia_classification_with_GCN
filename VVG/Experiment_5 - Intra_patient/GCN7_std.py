@@ -1,4 +1,3 @@
-from typing import Type, Tuple
 import os
 import numpy as np
 import pandas as pd
@@ -8,11 +7,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import seaborn as sns
-import igraph as ig
+import networkx as nx
+import scipy as sp
 
-from ts2vg import NaturalVG
+from typing import Type, Tuple
+from scipy import stats
 from dgl.data import DGLDataset
-from dgl.nn import GraphConv
+from dgl.nn import GraphConv, SAGEConv
 from dgl.dataloading import GraphDataLoader
 from collections import defaultdict
 from scipy.io import loadmat
@@ -144,7 +145,6 @@ def sampling_windows_10_beats(signals_V1: defaultdict,
 
 def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_interval_pos_signals: defaultdict,
                        rr_interval_pre_signals: defaultdict) -> dict:
-
     features = {}
     nodes_feat = []
     graph_it = 0
@@ -153,8 +153,8 @@ def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_inte
     for (class_, beats_V1), (_, beats_II) in zip(signals_V1.items(), signals_II.items()):
         for it, (beat_V1, beat_II) in enumerate(zip(beats_V1, beats_II)):
             [nodes_feat.append(minmax_scale(
-                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it]]))
-                for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
+                [i, j, k, rr_interval_pos_signals[class_][it], rr_interval_pre_signals[class_][it], round(j-k, 3),
+                 round(k/np.mean(beat_II), 3), round(k/np.std(beat_II), 3)])) for i, (j, k) in enumerate(zip(beat_II, beat_V1))]
             features.update({graph_it: nodes_feat})
             graph_it += 1
             nodes_feat = []
@@ -162,7 +162,49 @@ def get_beats_features(signals_V1: defaultdict, signals_II: defaultdict, rr_inte
     return features
 
 
-def convert_beats_in_graphs(signals_II: defaultdict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def projection_vectors_VVG(series_a: np.ndarray, series_b: np.ndarray, norm_a: float) -> float:
+    # calculate the projection from series_a to series_b
+    return np.dot(series_a, series_b) / norm_a
+
+
+def criteria_VVG(series_a: np.ndarray, series_b: np.ndarray, series_c: np.ndarray, time_a: int, time_b: int, time_c: int,
+                 norm_a: float) -> bool:
+    # calculate the visibility graph of the three series
+    # series_a, series_b, series_c are the three series
+    # time_a, time_b, time_c are the time of the three series
+    # returns True if the visibility graph of the three series is possible, False otherwise
+    proj_aa = norm_a  # norm of vector_a
+    proj_ab = projection_vectors_VVG(series_a, series_b, norm_a)
+    proj_ac = projection_vectors_VVG(series_a, series_c, norm_a)
+    time_frac = (time_b - time_c) / (time_b - time_a)
+    vg = proj_ab + (proj_aa - proj_ab) * time_frac
+    return proj_ac < vg
+
+
+def vector_visibility_graph_VVG(series_a: np.ndarray, series_b: np.ndarray) -> dict:
+    # calculate the visibility graph of the two series
+    # adjacency_list is the adjacency list of the visibility graph
+    # series_a, series_b are the two series
+    # returns the adjacency list of the visibility graph
+    norm_a = float(np.linalg.norm(series_a))
+    adjacency_list = defaultdict(list)
+    all_samples = np.column_stack((series_a, series_b))
+
+    for i, sample_i in enumerate(all_samples):
+        for s, sample_s in enumerate(all_samples[i + 1:], start=i + 1):
+            if s == i + 1:
+                adjacency_list[i].append(s)
+                adjacency_list[s].append(i)
+            else:
+                for t, sample_t in enumerate(all_samples[i + 1:s], start=i + 1):
+                    if criteria_VVG(sample_i, sample_s, sample_t, i, s, t, norm_a):
+                        adjacency_list[i].append(s)
+                        adjacency_list[s].append(i)
+                        break
+    return adjacency_list
+
+
+def convert_beats_in_graphs(signals_V1: defaultdict, signals_II: defaultdict) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     graph_id = []
     graph_src = []
@@ -172,21 +214,22 @@ def convert_beats_in_graphs(signals_II: defaultdict) -> Tuple[pd.DataFrame, pd.D
     classes = ["N", "S", "V"]
     graph_it = 0
 
-    for class_, beats in signals_II.items():
-        for beat in beats:
+    for (class_, beats_V1), (_, beats_II) in zip(signals_V1.items(), signals_II.items()):
+        for beat_V1, beat_II in zip(beats_V1, beats_II):
             label = classes.index(class_)
-            g = NaturalVG(directed=None).build(beat)
-            G = g.as_igraph()
-            source_nodes_ids = [i[0] for i in ig.Graph.get_edgelist(G)]
-            destination_nodes_ids = [i[1] for i in ig.Graph.get_edgelist(G)]
-            num_nodes = G.vcount()
-            graph_id.extend([graph_it] * len(ig.Graph.get_edgelist(G)))
+            adjlist_ = vector_visibility_graph_VVG(beat_V1, beat_II)
+            G = nx.DiGraph(adjlist_)
+            source_nodes_ids = [i[0] for i in nx.to_edgelist(G)]
+            destination_nodes_ids = [i[1] for i in nx.to_edgelist(G)]
+            num_nodes = nx.number_of_nodes(G)
+
+            graph_id.extend([graph_it] * len(nx.to_edgelist(G)))
             graph_src.extend(source_nodes_ids)
             graph_dst.extend(destination_nodes_ids)
-            graph_nodes.extend([num_nodes] * len(ig.Graph.get_edgelist(G)))
-            graph_label.extend([label] * len(ig.Graph.get_edgelist(G)))
-            graph_it += 1
+            graph_nodes.extend([num_nodes] * len(nx.to_edgelist(G)))
+            graph_label.extend([label] * len(nx.to_edgelist(G)))
             del G
+            graph_it += 1
 
     edges = pd.DataFrame({"graph_id": graph_id, "src": graph_src, "dst": graph_dst})
     properties = pd.DataFrame({"graph_id": graph_id, "label": graph_label, "num_nodes": graph_nodes})
@@ -209,7 +252,7 @@ def plotting_acc_loss(acc_values: list, loss_values: list, epochs: int) -> None:
     ax[1].set_xlabel("Épocas")
     ax[0].set_ylabel("Acurácia")
     ax[1].set_ylabel("Perda")
-    plt.savefig("./Images2/acc_loss_gcn2_rr.png", dpi=600)
+    plt.savefig("./Images7/acc_loss_gcn7_std.png", dpi=600)
 
     return None
 
@@ -232,7 +275,7 @@ def plotting_confusion_matrix(true_label: np.array, pred_label: np.array) -> Non
     ax.set_title("Matriz de Confusão", fontsize=18)
     ax.set_xlabel("Predição", fontsize=16)
     ax.set_ylabel("Verdadeiro", fontsize=16)
-    plt.savefig("./Images2/confusion_matrix_gcn2_rr.png", dpi=600)
+    plt.savefig("./Images7/confusion_matrix_gcn7_std.png", dpi=600)
 
     return None
 
@@ -245,7 +288,7 @@ def getting_classification_report(true_label: np.array, pred_label: np.array, se
     v = round(((m[0][2]+m[1][2])/((m[0][2]+m[1][2]) + (m[0][0]+m[0][1]+m[1][0]+m[1][1])))*100, 2)
     pond = round(((4423/9480)*n) + ((1837/9480)*s) + ((3220/9480)*v), 2)
 
-    with open("./Images2/report_gcn2_rr.txt", "w") as f:
+    with open("./Images7/report_gcn7_std.txt", "w") as f:
         f.write(set_name)
         f.write("\n")
         f.write(classification_report(true_label, pred_label, zero_division=0))
@@ -263,30 +306,23 @@ def divide_into_batches(dataset: Type[th.utils.data.Dataset]) -> Type[dgl.datalo
     return dataloader
 
 
-def training(dataset_train: Type[dgl.data.DGLDataset], dataset_test: Type[dgl.data.DGLDataset]) -> None:
+def training(dataset_train: Type[dgl.data.DGLDataset], n_features: int, model_name: str) -> None:
 
     epochs = 150
     pred_train_label = []
     true_train_label = []
-    pred_val_label = []
-    true_val_label = []
     acc_train = []
     loss_train = []
     num_correct_train = 0
     num_vals_train = 0
-    num_correct_val = 0
-    num_vals_val = 0
     tag = True
 
     train_loader = divide_into_batches(dataset_train)
-    test_loader = divide_into_batches(dataset_test)
-
-    model = GCN(5, 20, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
-
-    # creating the optimizer
+    model = GCN(n_features, 50, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
     opt = th.optim.Adam(model.parameters(), lr=0.001)
 
     # executing the training step
+
     for epoch in range(epochs):
         for batched_graph, labels in train_loader:
             pred = model(batched_graph, batched_graph.ndata["attr"].float())
@@ -304,6 +340,26 @@ def training(dataset_train: Type[dgl.data.DGLDataset], dataset_test: Type[dgl.da
         acc_train.append(num_correct_train / num_vals_train)
         print(f"epoch_{epoch}...")
 
+    th.save(model.state_dict(), f"./Models/{model_name}.pth")
+
+    loss_train = [float(x.detach().numpy()) for x in loss_train]
+
+    plotting_acc_loss(acc_train, loss_train, epochs)
+
+
+def testing(dataset_test: Type[dgl.data.DGLDataset], n_features: int, model_name: str) -> None:
+
+    pred_val_label = []
+    true_val_label = []
+    num_correct_val = 0
+    num_vals_val = 0
+
+    test_loader = divide_into_batches(dataset_test)
+
+    model = GCN(n_features, 50, 3)  # (n_nodes_features, n_nodes_hidden_layer, n_classes)
+    model.load_state_dict(th.load(f"./Models/{model_name}.pth"))
+    model.eval()
+
     for batched_graph, labels in test_loader:
         pred = model(batched_graph, batched_graph.ndata["attr"].float())
         num_correct_val += (pred.argmax(1) == labels).sum().item()
@@ -311,14 +367,8 @@ def training(dataset_train: Type[dgl.data.DGLDataset], dataset_test: Type[dgl.da
         pred_val_label.extend(pred.argmax(1))
         true_val_label.extend(labels)
 
-    loss_train = [float(x.detach().numpy()) for x in loss_train]
-
-    # plotting the metrics
-    plotting_acc_loss(acc_train, loss_train, epochs)
     plotting_confusion_matrix(true_val_label, pred_val_label)
     getting_classification_report(true_val_label, pred_val_label, "VALIDATION")
-
-    return None
 
 
 class SyntheticDataset(DGLDataset):
@@ -377,28 +427,46 @@ class SyntheticDataset(DGLDataset):
 class GCN(nn.Module):
     def __init__(self, in_feats, h_feats, num_classes):
         super(GCN, self).__init__()
-        self.conv1 = GraphConv(in_feats, h_feats)
-        self.conv2 = GraphConv(h_feats, num_classes)
+        self.conv1 = SAGEConv(in_feats, h_feats, "mean")
+        self.conv2 = GraphConv(h_feats, h_feats - 10)
+        self.conv3 = SAGEConv(h_feats - 10, h_feats - 20, "mean")
+        self.conv4 = SAGEConv(h_feats - 20, h_feats - 30, "mean")
+        self.conv5 = SAGEConv(h_feats - 30, h_feats - 40, "mean")
+        self.conv6 = GraphConv(h_feats - 40, h_feats - 45)
+        self.conv7 = GraphConv(h_feats - 45, num_classes)
 
     def forward(self, g, in_feat):
         h = self.conv1(g, in_feat)
         h = F.relu(h)
         h = self.conv2(g, h)
-        g.ndata['h'] = h
-        return dgl.mean_nodes(g, 'h')
+        h = F.relu(h)
+        h = self.conv3(g, h)
+        h = F.relu(h)
+        h = self.conv4(g, h)
+        h = F.relu(h)
+        h = self.conv5(g, h)
+        h = F.relu(h)
+        h = self.conv6(g, h)
+        h = F.relu(h)
+        h = self.conv7(g, h)
+        g.ndata["h"] = h
+        return dgl.mean_nodes(g, "h")
 
 
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, 'Train'))
-    FILES_TEST = os.listdir(os.path.join(PATH, 'Test'))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, "Train"))
+    FILES_TEST = os.listdir(os.path.join(PATH, "Test"))
+    MODE = "Test"
+    N_FEATURES = 8
+    MODEL_NAME = "model7_std"
 
     print("segmentating...")
     train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
-        segmentation_signals(PATH, FILES_TRAIN, 100, 180, "Train"))
+        segmentation_signals(PATH, FILES_TRAIN, 100, 180, 'Train'))
     test_signals_V1, test_signals_II, test_rr_interval_pos_signals, test_rr_interval_pre_signals = (
-        segmentation_signals(PATH, FILES_TEST, 100, 180, "Test"))
+        segmentation_signals(PATH, FILES_TEST, 100, 180, 'Test'))
 
     print("resampling_intra_patient")
     train_signals_V1, test_signals_V1 = resampling_intra_patient(train_signals_V1, test_signals_V1)
@@ -408,27 +476,39 @@ if __name__ == "__main__":
     train_rr_interval_pre_signals, test_rr_interval_pre_signals = resampling_intra_patient(train_rr_interval_pre_signals,
                                                                                            test_rr_interval_pre_signals)
 
-    print("sampling...")
-    train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
-        sampling_windows_10_beats(train_signals_V1, train_signals_II, train_rr_interval_pos_signals,
-                                  train_rr_interval_pre_signals))
-    test_signals_V1, test_signals_II, test_rr_interval_pos_signals, test_rr_interval_pre_signals = (
-        sampling_windows_10_beats(test_signals_V1, test_signals_II, test_rr_interval_pos_signals,
-                                  test_rr_interval_pre_signals))
+    if MODE == 'Train':
+        print("sampling...")
+        train_signals_V1, train_signals_II, train_rr_interval_pos_signals, train_rr_interval_pre_signals = (
+            sampling_windows_10_beats(train_signals_V1, train_signals_II, train_rr_interval_pos_signals,
+                                      train_rr_interval_pre_signals))
 
-    print("extracting attributes...")
-    train_features = get_beats_features(train_signals_V1, train_signals_II, train_rr_interval_pos_signals,
-                                        train_rr_interval_pre_signals)
-    test_features = get_beats_features(test_signals_V1, test_signals_II, test_rr_interval_pos_signals,
-                                       test_rr_interval_pre_signals)
+        print("extracting attributes...")
+        train_features = get_beats_features(train_signals_V1, train_signals_II, train_rr_interval_pos_signals,
+                                            train_rr_interval_pre_signals)
 
-    print("converting beats into graphs...")
-    train_edges, train_properties = convert_beats_in_graphs(train_signals_II)
-    test_edges, test_properties = convert_beats_in_graphs(test_signals_II)
+        print("converting beats into graphs...")
+        train_edges, train_properties = convert_beats_in_graphs(train_signals_V1, train_signals_II)
 
-    print("creating dataset...")
-    dataset_train = SyntheticDataset(train_edges, train_properties, train_features)
-    dataset_test = SyntheticDataset(test_edges, test_properties, test_features)
+        print("creating dataset...")
+        dataset_train = SyntheticDataset(train_edges, train_properties, train_features)
 
-    print("training and testing")
-    training(dataset_train, dataset_test)
+        print("training")
+        training(dataset_train, N_FEATURES, MODEL_NAME)
+    else:
+        print("sampling...")
+        test_signals_V1, test_signals_II, test_rr_interval_pos_signals, test_rr_interval_pre_signals = (
+            sampling_windows_10_beats(test_signals_V1, test_signals_II, test_rr_interval_pos_signals,
+                                      test_rr_interval_pre_signals))
+
+        print("extracting attributes...")
+        test_features = get_beats_features(test_signals_V1, test_signals_II, test_rr_interval_pos_signals,
+                                           test_rr_interval_pre_signals)
+
+        print("converting beats into graphs...")
+        test_edges, test_properties = convert_beats_in_graphs(test_signals_V1, test_signals_II)
+
+        print("creating dataset...")
+        dataset_test = SyntheticDataset(test_edges, test_properties, test_features)
+
+        print("testing")
+        testing(dataset_test, N_FEATURES, MODEL_NAME)

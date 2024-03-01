@@ -12,7 +12,6 @@ import scipy as sp
 
 from typing import Type, Tuple
 from scipy import stats
-from ts2vg import NaturalVG
 from dgl.data import DGLDataset
 from dgl.nn import GraphConv
 from dgl.dataloading import GraphDataLoader
