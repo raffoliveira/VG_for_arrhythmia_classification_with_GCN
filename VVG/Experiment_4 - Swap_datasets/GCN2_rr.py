@@ -440,8 +440,8 @@ class GCN(nn.Module):
 if __name__ == "__main__":
 
     PATH = "../../../Data"
-    FILES_TRAIN = os.listdir(os.path.join(PATH, "Train"))
-    FILES_TEST = os.listdir(os.path.join(PATH, "Test"))
+    FILES_TRAIN = os.listdir(os.path.join(PATH, "Test"))
+    FILES_TEST = os.listdir(os.path.join(PATH, "Train"))
     MODE = "Test"
     N_FEATURES = 5
     MODEL_NAME = "model2_rr"
