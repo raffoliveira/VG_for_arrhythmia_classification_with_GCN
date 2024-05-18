@@ -1,20 +1,20 @@
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.io import loadmat
-from collections import defaultdict
 from typing import Tuple, Type
+from collections import defaultdict
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.io import loadmat
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 from keras.utils import to_categorical
 from tensorflow import keras
 
 
-class CNN:
+class CNNFunctions:
 
-    def __init__(self):
-        ...
+    def __init__(self) -> None:
+        pass
 
     def segmentation_signals(
         self,
@@ -22,7 +22,7 @@ class CNN:
         list_ecgs: list,
         size_beat_before: int,
         size_beat_after: int,
-        set_name: str
+        set_name: str,
     ) -> defaultdict:
         """
         Responsible for segmenting ECG signals into beats"
@@ -30,7 +30,7 @@ class CNN:
         Args:
             path: path of ECG signals
             list_ecgs: name of each file of ECG signal
-            size_beat_before: amount of points before peak of each beat 
+            size_beat_before: amount of points before peak of each beat
             size_beat_after: amount of points after peak of each beat
             set_name: name of set beats
 
@@ -63,7 +63,9 @@ class CNN:
                 if beat_type not in "NLRejAaJSVEFP/fUQ":
                     continue
 
-                beat_sample = ecg[int(peak - size_beat_before): int(peak + size_beat_after)]
+                beat_sample = ecg[
+                    int(peak - size_beat_before): int(peak + size_beat_after)
+                ]
 
                 if beat_type in "NLRej":
                     dict_signals["N"].append(beat_sample)
@@ -114,7 +116,9 @@ class CNN:
                 ecg_list.append(np.asarray(beat).reshape(-1, 1))
                 ecg_labels.append(classes.index(class_))
 
-        res = compute_class_weight(class_weight="balanced", classes=np.unique(ecg_labels), y=ecg_labels)
+        res = compute_class_weight(
+            class_weight="balanced", classes=np.unique(ecg_labels), y=ecg_labels
+        )
 
         classes_weights = {}
         for i, j in enumerate(res):
@@ -126,20 +130,22 @@ class CNN:
 
         return X, y, classes_weights
 
-    def plot_history_metrics(self, history: Type[keras.callbacks.History], cnn_name: str) -> None:
+    def plot_history_metrics(
+        self, history: Type[keras.callbacks.History], path: str
+    ) -> None:
         """
         Plots the history metrics of a trained model.
 
         Args:
             history: History object returned by model training.
-            cnn_name: Name of the CNN model.
+            path: path to save metrics
         """
 
         for key, value in history.history.items():
             plt.figure(figsize=(12, 6))
             plt.plot(range(len(value)), value)
             plt.title(str(key))
-            plt.savefig(f"./images/{cnn_name}/{str(key)}.png", dpi=600)
+            plt.savefig(f"{path}/{str(key)}.png", dpi=600)
 
     def training_testing(
         self,
@@ -149,7 +155,7 @@ class CNN:
         y_val: np.asarray,
         classes_weight: np.array,
         model: Type[keras.Model],
-        cnn_name: str
+        path: str,
     ) -> None:
         """
         Trains and evaluates the model.
@@ -161,22 +167,15 @@ class CNN:
             y_val: Validation labels.
             classes_weight Weight values for each class.
             model: Keras model to train and evaluate.
-            cnn_name: Name of the CNN model.
+            path: path to save metrics.
         """
 
         epochs = 150
         callbacks = [
             keras.callbacks.ReduceLROnPlateau(
-                monitor="categorical_accuracy",
-                factor=0.2,
-                patience=5,
-                min_lr=0.000001
+                monitor="categorical_accuracy", factor=0.2, patience=5, min_lr=0.000001
             ),
-            keras.callbacks.EarlyStopping(
-                monitor="loss",
-                patience=10,
-                verbose=1
-            )
+            keras.callbacks.EarlyStopping(monitor="loss", patience=10, verbose=1),
         ]
 
         optimizer = keras.optimizers.Adam(amsgrad=True, learning_rate=0.001)
@@ -185,14 +184,10 @@ class CNN:
             keras.metrics.CategoricalAccuracy(),
             keras.metrics.AUC(),
             keras.metrics.Precision(),
-            keras.metrics.Recall()
+            keras.metrics.Recall(),
         ]
 
-        model.compile(
-            optimizer=optimizer,
-            loss=loss,
-            metrics=metrics
-        )
+        model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
         model_history = model.fit(
             x=X_train,
@@ -200,15 +195,13 @@ class CNN:
             epochs=epochs,
             callbacks=callbacks,
             class_weight=classes_weight,
-            verbose=1
+            verbose=1,
         )
 
-        self.plot_history_metrics(history=model_history, cnn_name=cnn_name)
+        self.plot_history_metrics(history=model_history, path=path)
 
         loss, accuracy, auc, precision, recall = model.evaluate(
-            x=X_val,
-            y=y_val,
-            verbose=1
+            x=X_val, y=y_val, verbose=1
         )
 
         prediction_proba = model.predict(X_val)
@@ -221,21 +214,25 @@ class CNN:
             yticklabels=["N", "S", "V"],
             annot=True,
             fmt=".0f",
-            cmap="rocket_r"
+            cmap="rocket_r",
         )
 
-        plt.savefig(f"./images/{cnn_name}/confusion_matrix_{cnn_name}.png", dpi=600)
+        plt.savefig(f"{path}/confusion_matrix.png", dpi=600)
 
-        with open(f"./images/{cnn_name}/report_{cnn_name}.txt", "w") as f:
+        with open(f"{path}/report.txt", "w") as f:
             f.write(classification_report(y_true, prediction, zero_division=0))
 
-        with open(f"./images/{cnn_name}/{cnn_name}.txt", "w") as f:
+        with open(f"{path}/metrics.txt", "w") as f:
             f.write("TRAIN\n")
             f.write(f"Loss: {np.array(model_history.history['loss']).mean()}\n")
-            f.write(f"Precision: {np.array(model_history.history['precision']).mean()}\n")
+            f.write(
+                f"Precision: {np.array(model_history.history['precision']).mean()}\n"
+            )
             f.write(f"Recall: {np.array(model_history.history['recall']).mean()}\n")
             f.write(f"AUC: {np.array(model_history.history['auc']).mean()}\n")
-            f.write(f"Accuracy: {np.array(model_history.history['categorical_accuracy']).mean()}\n")
+            f.write(
+                f"Accuracy: {np.array(model_history.history['categorical_accuracy']).mean()}\n"
+            )
 
             f.write("\nTEST\n")
             f.write(f"Loss: {loss}\n")

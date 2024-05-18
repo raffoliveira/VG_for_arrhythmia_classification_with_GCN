@@ -2,7 +2,7 @@ import os
 from typing import Type
 from tensorflow import keras
 from tensorflow.keras import layers
-from functions import CNN
+from helpers.aux_cnn import CNNFunctions
 
 
 def building_model() -> Type[keras.Model]:
@@ -14,10 +14,14 @@ def building_model() -> Type[keras.Model]:
 
     input_layer = keras.Input(shape=(280, 1))
 
-    x = layers.Conv1D(filters=32, kernel_size=3, strides=2, activation="relu", padding="same")(input_layer)
+    x = layers.Conv1D(
+        filters=32, kernel_size=3, strides=2, activation="relu", padding="same"
+    )(input_layer)
     x = layers.BatchNormalization()(x)
 
-    x = layers.Conv1D(filters=64, kernel_size=3, strides=2, activation="relu", padding="same")(x)
+    x = layers.Conv1D(
+        filters=64, kernel_size=3, strides=2, activation="relu", padding="same"
+    )(x)
     x = layers.BatchNormalization()(x)
 
     x = layers.Dropout(0.2)(x)
@@ -27,12 +31,18 @@ def building_model() -> Type[keras.Model]:
     x = layers.Dense(4096, activation="relu")(x)
     x = layers.Dropout(0.2)(x)
 
-    x = layers.Dense(2048, activation="relu", kernel_regularizer=keras.regularizers.L2())(x)
+    x = layers.Dense(
+        2048, activation="relu", kernel_regularizer=keras.regularizers.L2()
+    )(x)
     x = layers.Dropout(0.2)(x)
 
-    x = layers.Dense(1024, activation="relu", kernel_regularizer=keras.regularizers.L2())(x)
+    x = layers.Dense(
+        1024, activation="relu", kernel_regularizer=keras.regularizers.L2()
+    )(x)
     x = layers.Dropout(0.2)(x)
-    x = layers.Dense(128, activation="relu", kernel_regularizer=keras.regularizers.L2())(x)
+    x = layers.Dense(
+        128, activation="relu", kernel_regularizer=keras.regularizers.L2()
+    )(x)
 
     output_layer = layers.Dense(3, activation="softmax")(x)
 
@@ -41,11 +51,11 @@ def building_model() -> Type[keras.Model]:
 
 if __name__ == "__main__":
 
-    cnn = CNN()
+    cnn = CNNFunctions()
     PATH = "../../../Data"
     files = os.listdir(os.path.join(PATH, "Train"))
     files_validation = ["109.mat", "114.mat", "207.mat", "223.mat"]
-    files_training = list(set(files)-set(files_validation))
+    files_training = list(set(files) - set(files_validation))
 
     print("segmentating...")
     training_signals = cnn.segmentation_signals(
@@ -53,14 +63,14 @@ if __name__ == "__main__":
         list_ecgs=files_training,
         size_beat_before=100,
         size_beat_after=180,
-        set_name="Train"
+        set_name="Train",
     )
     validation_signals = cnn.segmentation_signals(
         path=PATH,
         list_ecgs=files_training,
         size_beat_before=100,
         size_beat_after=180,
-        set_name="Train"
+        set_name="Train",
     )
 
     print("sampling...")
@@ -68,7 +78,9 @@ if __name__ == "__main__":
     validation_signals = cnn.sampling_windows_beats(signals=validation_signals)
 
     print("scaling")
-    X_training, y_training, classes_weights = cnn.scaling_dataset(signals=training_signals)
+    X_training, y_training, classes_weights = cnn.scaling_dataset(
+        signals=training_signals
+    )
     X_testing, y_testing, _ = cnn.scaling_dataset(signals=validation_signals)
 
     print("training and testing")
@@ -79,5 +91,5 @@ if __name__ == "__main__":
         y_val=y_testing,
         classes_weight=classes_weights,
         model=building_model(),
-        cnn_name="cnn_small"
+        path="VG/Experiment_1 - New_architectures/CNN/images/cnn_small",
     )
