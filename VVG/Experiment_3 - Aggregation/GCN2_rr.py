@@ -72,7 +72,7 @@ if __name__ == "__main__":
                 list_ecgs=files_test,
                 size_beat_before=100,
                 size_beat_after=180,
-                set_name="Train"
+                set_name="Test"
             )
         )
 
