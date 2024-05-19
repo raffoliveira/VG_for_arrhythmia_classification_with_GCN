@@ -6,9 +6,11 @@ import torch as th
 import dgl
 import torch.nn.functional as F
 import seaborn as sns
+import scipy as sp
+from scipy import stats
 import matplotlib.pyplot as plt
 from typing import Type, Tuple, Any
-from collections import defaultdict
+from collections import defaultdict, Counter
 from dgl.dataloading import GraphDataLoader
 from scipy.io import loadmat
 from sklearn.preprocessing import minmax_scale
@@ -41,7 +43,7 @@ class GCNFunctions:
             set_name: name of set beats
 
         Returns:
-            defaultdict: Dictionary containing all beats divided by class
+           Two dictionaries: beats v1 and ii
         """
 
         dict_signals_v1 = defaultdict(list)
@@ -93,6 +95,105 @@ class GCNFunctions:
 
         return dict_signals_v1, dict_signals_ii
 
+    def segmentation_signals_v1_ii_rr(
+        self,
+        path: str,
+        list_ecgs: list,
+        size_beat_before: int,
+        size_beat_after: int,
+        set_name: str
+    ) -> Tuple[defaultdict, defaultdict, defaultdict, defaultdict]:
+        """
+        Responsible for segmenting ECG signals into beats"
+
+        Args:
+            path: path of ECG signals
+            list_ecgs: name of each file of ECG signal
+            size_beat_before: amount of points before peak of each beat
+            size_beat_after: amount of points after peak of each beat
+            set_name: name of set beats
+
+        Returns:
+            Four dictionaries: beats v1, beats ii, pre rr_interval and pos rr_interval
+        """
+
+        dict_signals_v1 = defaultdict(list)
+        dict_signals_ii = defaultdict(list)
+        rr_interval_pos_signals = defaultdict(list)
+        rr_interval_pre_signals = defaultdict(list)
+        rr_interval_pos = 0
+        rr_interval_pre = 0
+
+        for file in list_ecgs:
+
+            struct = loadmat(os.path.join(path, set_name, file))
+            data = struct["individual"][0][0]
+
+            beat_peaks = data["anno_anns"]
+            beat_types = data["anno_type"]
+
+            ecg_v1 = data["signal_r"][:, 1]
+            ecg_ii = data["signal_r"][:, 0]
+
+            if file == '114.mat':
+                ecg_v1 = data['signal_r'][:, 0]
+                ecg_ii = data['signal_r'][:, 1]
+
+            ecg_ii = self.__standardization(data=ecg_ii)
+            ecg_v1 = self.__standardization(data=ecg_v1)
+
+            for it, (peak, beat_type) in enumerate(zip(beat_peaks, beat_types)):
+
+                beat_samples_v1 = []
+                beat_samples_ii = []
+
+                if (peak - size_beat_before) < 0 or (peak + size_beat_after) > len(ecg_ii):
+                    continue
+
+                if beat_type not in "NLRejAaJSVEFP/fUQ":
+                    continue
+
+                beat_samples_ii = ecg_ii[int(peak - size_beat_before): int(peak + size_beat_after)]
+                beat_samples_v1 = ecg_v1[int(peak - size_beat_before): int(peak + size_beat_after)]
+
+                if it-1 > 0:
+                    rr_interval_pre = (peak - beat_peaks[it-1])[0]
+                if it+1 < len(beat_peaks):
+                    rr_interval_pos = (beat_peaks[it+1] - peak)[0]
+
+                if beat_type in "NLRej":
+                    dict_signals_v1["N"].append(beat_samples_v1)
+                    dict_signals_ii["N"].append(beat_samples_ii)
+                    rr_interval_pos_signals["N"].append(rr_interval_pos)
+                    rr_interval_pre_signals["N"].append(rr_interval_pre)
+                elif beat_type in "AaJS":
+                    dict_signals_v1["S"].append(beat_samples_v1)
+                    dict_signals_ii["S"].append(beat_samples_ii)
+                    rr_interval_pos_signals["S"].append(rr_interval_pos)
+                    rr_interval_pre_signals["S"].append(rr_interval_pre)
+                elif beat_type in "VE":
+                    dict_signals_v1["V"].append(beat_samples_v1)
+                    dict_signals_ii["V"].append(beat_samples_ii)
+                    rr_interval_pos_signals["V"].append(rr_interval_pos)
+                    rr_interval_pre_signals["V"].append(rr_interval_pre)
+
+        return dict_signals_v1, dict_signals_ii, rr_interval_pos_signals, rr_interval_pre_signals
+
+    def __standardization(self, data: np.ndarray) -> np.ndarray:
+        """
+        Scaling centered around mean with a unit standard deviation
+
+        Args:
+            data: time serie to scale
+
+        Returns:
+           Transformed time serie 
+        """
+        data = np.nan_to_num(data)
+        data = data - np.mean(data)
+        data = data / np.std(data)
+        return data
+
     def sampling_windows_beats(self, signals: defaultdict) -> defaultdict:
         """
         Sampling of beats from class N
@@ -113,9 +214,49 @@ class GCNFunctions:
 
         return signals
 
+    def sampling_windows_beats_signals(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> Tuple[defaultdict, defaultdict, defaultdict, defaultdict]:
+        """
+        Sampling of beats from class N
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+            rr_interval_pos_signals: Dictionary of pos rr_interval
+            rr_interval_pre_signals: Dictionary of pre rr_interval
+
+        Returns:
+            Same argument dictionaries with sampled class N
+        """
+
+        select_n_beats_v1 = []
+        select_n_beats_i = []
+        select_rr_interval_pos_signals = []
+        select_rr_interval_pre_signals = []
+
+        for index, (beat_v1, beat_ii, rr_pos, rr_pre) in enumerate(
+                zip(signals_v1["N"], signals_ii["N"], rr_interval_pos_signals["N"], rr_interval_pre_signals["N"]), 1):
+            if (index % 10) == 0:
+                select_n_beats_v1.append(beat_v1)
+                select_n_beats_i.append(beat_ii)
+                select_rr_interval_pos_signals.append(rr_pos)
+                select_rr_interval_pre_signals.append(rr_pre)
+
+        signals_v1["N"] = select_n_beats_v1
+        signals_ii["N"] = select_n_beats_i
+        rr_interval_pos_signals["N"] = select_rr_interval_pos_signals
+        rr_interval_pre_signals["N"] = select_rr_interval_pre_signals
+
+        return signals_v1, signals_ii, rr_interval_pos_signals, rr_interval_pre_signals
+
     def get_beats_features(self, signals_v1: dict, signals_ii: dict) -> dict:
         """
-        Extract the features of the beats
+        Extract three features of the beats: time, point of beat ii and point of beat v1
 
         Args:
             signals_v1: Dictionary of beats v1
@@ -140,6 +281,289 @@ class GCNFunctions:
                 graph_it += 1
 
         return features
+
+    def get_beats_features_avg(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> dict:
+        """
+        Extract seven features of the beats: time, point of beat ii, point of beat v1, pre_rr_interval, pos_rr_interval,
+        difference between beat points v1 and ii, and division the points of beat v1 by the average of points of beat ii
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Dictionary with extracted information
+        """
+
+        features = {}
+        nodes_feat = []
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for it, (beat_v1, beat_ii) in enumerate(zip(beats_v1, beats_ii)):
+                for i, (j, k) in enumerate(zip(beat_ii, beat_v1)):
+                    features_ = [
+                        i,
+                        j,
+                        k,
+                        rr_interval_pos_signals[class_][it],
+                        rr_interval_pre_signals[class_][it],
+                        round(j-k, 3),
+                        round(k/np.mean(beat_ii), 3)
+                    ]
+                    nodes_feat.append(minmax_scale(features_))
+                    features.update({graph_it: nodes_feat})
+                graph_it += 1
+                nodes_feat = []
+
+        return features
+
+    def get_beats_features_dif(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> dict:
+        """
+        Extract six features of the beats: time, point of beat ii, point of beat v1, pre_rr_interval, pos_rr_interval,
+        and difference between beat points v1 and ii
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Dictionary with extracted information
+        """
+
+        features = {}
+        nodes_feat = []
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for it, (beat_v1, beat_ii) in enumerate(zip(beats_v1, beats_ii)):
+                for i, (j, k) in enumerate(zip(beat_ii, beat_v1)):
+                    features_ = [
+                        i,
+                        j,
+                        k,
+                        rr_interval_pos_signals[class_][it],
+                        rr_interval_pre_signals[class_][it],
+                        round(j-k, 3)
+                    ]
+                    nodes_feat.append(minmax_scale(features_))
+                    features.update({graph_it: nodes_feat})
+                graph_it += 1
+                nodes_feat = []
+
+        return features
+
+    def get_beats_features_rr(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> dict:
+        """
+        Extract five features of the beats: time, point of beat ii, point of beat v1, pre_rr_interval, pos_rr_interval
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Dictionary with extracted information
+        """
+
+        features = {}
+        nodes_feat = []
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for it, (beat_v1, beat_ii) in enumerate(zip(beats_v1, beats_ii)):
+                for i, (j, k) in enumerate(zip(beat_ii, beat_v1)):
+                    features_ = [
+                        i,
+                        j,
+                        k,
+                        rr_interval_pos_signals[class_][it],
+                        rr_interval_pre_signals[class_][it]
+                    ]
+                    nodes_feat.append(minmax_scale(features_))
+                    features.update({graph_it: nodes_feat})
+                graph_it += 1
+                nodes_feat = []
+
+        return features
+
+    def get_beats_features_std(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> dict:
+        """
+        Extract seven features of the beats: time, point of beat ii, point of beat v1, pre_rr_interval, pos_rr_interval,
+        difference between beat points v1 and ii, division the points of beat v1 by the average of points of beat ii and
+        division the points of beat v1 by the standard deviation of points of beat ii
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Dictionary with extracted information
+        """
+
+        features = {}
+        nodes_feat = []
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for it, (beat_v1, beat_ii) in enumerate(zip(beats_v1, beats_ii)):
+                for i, (j, k) in enumerate(zip(beat_ii, beat_v1)):
+                    features_ = [
+                        i,
+                        j,
+                        k,
+                        rr_interval_pos_signals[class_][it],
+                        rr_interval_pre_signals[class_][it],
+                        round(j-k, 3),
+                        round(k/np.mean(beat_ii), 3),
+                        round(k/np.std(beat_ii), 3)
+                    ]
+                    nodes_feat.append(minmax_scale(features_))
+                    features.update({graph_it: nodes_feat})
+                graph_it += 1
+                nodes_feat = []
+
+        return features
+
+    def get_beats_features_stats(
+        self,
+        signals_v1: defaultdict,
+        signals_ii: defaultdict,
+        rr_interval_pos_signals: defaultdict,
+        rr_interval_pre_signals: defaultdict
+    ) -> dict:
+        """
+        Extract twenty-two features of the beats: time, point of beat ii, point of beat v1, pre_rr_interval, pos_rr_interval,
+        difference between beat points v1 and ii, division the points of beat v1 by the average of points of beat ii,
+        division the points of beat v1 by the standard deviation of points of beat ii, entropy, 5-percentile, 
+        25-percentile, 75-percentile, 95-percentile, median, mean, standard deviation, variance, rms, kurtosis, 
+        skewness, zero_crossings, mean_crossings
+
+        Args:
+            signals_v1: Dictionary of beats v1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Dictionary with extracted information
+        """
+
+        features = {}
+        nodes_feat = []
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for it, (beat_v1, beat_ii) in enumerate(zip(beats_v1, beats_ii)):
+                for i, (j, k) in enumerate(zip(beat_ii, beat_v1)):
+                    features_ = [
+                        i,
+                        j,
+                        k,
+                        rr_interval_pos_signals[class_][it],
+                        rr_interval_pre_signals[class_][it],
+                        round(j-k, 3),
+                        round(k/np.mean(beat_ii), 3),
+                        round(k/np.std(beat_ii), 3)
+                    ] + self.__get_features(beat=beat_ii)
+                    nodes_feat.append(minmax_scale(features_))
+                    features.update({graph_it: nodes_feat})
+                graph_it += 1
+                nodes_feat = []
+
+        return features
+
+    def __calculate_entropy(self, beat: list):
+        """
+        Calculate the entropy of a beat
+
+        Args:
+            beat: list of points
+
+        Returns:
+            The entropy
+        """
+        counter_values = Counter(beat).most_common()
+        probabilities = [elem[1]/len(beat) for elem in counter_values]
+        entropy = sp.stats.entropy(probabilities)
+        return [round(entropy, 3)]
+
+    def __calculate_statistics(self, beat: list):
+        """
+        Calculate several statistics metrics
+
+        Args:
+            beat: list of points
+
+        Returns:
+            the metrics 
+        """
+        n5 = round(np.nanpercentile(beat, 5), 3)
+        n25 = round(np.nanpercentile(beat, 25), 3)
+        n75 = round(np.nanpercentile(beat, 75), 3)
+        n95 = round(np.nanpercentile(beat, 95), 3)
+        median = round(np.nanpercentile(beat, 50), 3)
+        mean = round(np.nanmean(beat), 3)
+        std = round(np.nanstd(beat), 3)
+        var = round(np.nanvar(beat), 3)
+        rms = round(np.nanmean(np.sqrt(beat**2)), 3)
+        kurtosis = round(stats.kurtosis(beat), 3)
+        skewness = round(stats.skew(beat), 3)
+        return [n5, n25, n75, n95, median, mean, std, var, rms, kurtosis, skewness]
+
+    def __calculate_crossings(self, beat: list):
+        """
+        Calculate some crossings values
+
+        Args:
+            beat: list of points
+
+        Returns:
+            crossing values
+        """
+        # number of times a signal crosses y = 0
+        # number of times a signal crosses y = mean(y)
+        zero_crossing_indices = np.nonzero(np.diff(np.array(beat) > 0))[0]
+        no_zero_crossings = len(zero_crossing_indices)
+        mean_crossing_indices = np.nonzero(np.diff(np.array(beat) > np.nanmean(beat)))[0]
+        no_mean_crossings = len(mean_crossing_indices)
+        return [round(no_zero_crossings, 3), round(no_mean_crossings, 3)]
+
+    def __get_features(self, beat: list):
+        """
+        Calculate entropy, crossings and statistics metrics
+
+        Args:
+            beat: list of points
+
+        Returns:
+            the calculated metrics
+        """
+        entropy = self.__calculate_entropy(beat)
+        crossings = self.__calculate_crossings(beat)
+        statistics = self.__calculate_statistics(beat)
+        return entropy + crossings + statistics
 
     def convert_beats_in_graphs(
         self, signals: dict
@@ -389,12 +813,12 @@ class GCNFunctions:
             acc_values=aux_var.get("acc_train"),
             loss_values=aux_var.get("loss_train"),
             epochs=kwargs.get("epochs"),
-            path=f"{kwargs.get("type_gcn")}/acc_loss_{kwargs.get("type_gcn")}.png",
+            path=f"{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png",
         )
         self.__plotting_confusion_matrix(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
-            path=f"{kwargs.get("type_gcn")}/confusion_matrix_{kwargs.get("type_gcn")}.png",
+            path=f"{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}.png",
         )
         self.__getting_classification_report(
             true_label=aux_var.get("true_val_label"),
