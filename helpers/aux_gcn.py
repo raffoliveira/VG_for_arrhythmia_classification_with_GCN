@@ -6,6 +6,7 @@ import torch as th
 import dgl
 import torch.nn.functional as F
 import seaborn as sns
+import networkx as nx
 import scipy as sp
 from scipy import stats
 import matplotlib.pyplot as plt
@@ -16,6 +17,7 @@ from scipy.io import loadmat
 from sklearn.preprocessing import minmax_scale
 from sklearn.metrics import classification_report, confusion_matrix
 from ts2vg import NaturalVG
+from ts2vvg.graph import build_graph
 from helpers.gcn import GCN2, GCN7, GCN60, GCN120, GCN240
 
 
@@ -588,9 +590,7 @@ class GCNFunctions:
         statistics = self.__calculate_statistics(beat)
         return entropy + crossings + statistics
 
-    def convert_beats_in_graphs(
-        self, signals: dict
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def convert_beats_in_graphs(self, signals: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Convert beats into graphs
 
@@ -623,6 +623,62 @@ class GCNFunctions:
                 aux_graph.get("graph_dst").extend([i[1] for i in ig.Graph.get_edgelist(graph)])
                 aux_graph.get("graph_nodes").extend([num_nodes] * len(ig.Graph.get_edgelist(graph)))
                 aux_graph.get("graph_label").extend([label] * len(ig.Graph.get_edgelist(graph)))
+
+                graph_it += 1
+                del graph
+
+        edges = pd.DataFrame(
+            {
+                "graph_id": aux_graph.get("graph_id"),
+                "src": aux_graph.get("graph_src"),
+                "dst": aux_graph.get("graph_dst")
+            }
+        )
+        properties = pd.DataFrame(
+            {
+                "graph_id": aux_graph.get("graph_id"),
+                "label": aux_graph.get("graph_label"),
+                "num_nodes": aux_graph.get("graph_nodes")
+            }
+        )
+        properties.drop_duplicates(inplace=True)
+
+        return edges, properties
+
+    def convert_beats_in_graphs_vvg(self, signals_v1: dict, signals_ii: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Convert beats into graphs using VVG
+
+        Args:
+            signals_v1: Dictionary of beats V1
+            signals_ii: Dictionary of beats ii
+
+        Returns:
+            Two dataframes, one with edges information and the other with the properties of each generated graph
+        """
+
+        aux_graph = {
+            "graph_id": [],
+            "graph_src": [],
+            "graph_dst": [],
+            "graph_nodes": [],
+            "graph_label": []
+        }
+        classes = ["N", "S", "V"]
+        graph_it = 0
+
+        for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
+            for beat_v1, beat_ii in zip(beats_v1, beats_ii):
+                label = classes.index(class_)
+                adjlist_ = build_graph(series=(beat_v1, beat_ii))
+                graph = nx.DiGraph(adjlist_)
+                num_nodes = nx.number_of_nodes(graph)
+
+                aux_graph.get("graph_id").extend([graph_it] * len(nx.to_edgelist(graph)))
+                aux_graph.get("graph_src").extend([i[0] for i in nx.to_edgelist(graph)])
+                aux_graph.get("graph_dst").extend([i[1] for i in nx.to_edgelist(graph)])
+                aux_graph.get("graph_nodes").extend([num_nodes] * len(nx.to_edgelist(graph)))
+                aux_graph.get("graph_label").extend([label] * len(nx.to_edgelist(graph)))
 
                 graph_it += 1
                 del graph
@@ -838,6 +894,121 @@ class GCNFunctions:
             epochs=kwargs.get("epochs"),
             path=f"{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png",
         )
+        self.__plotting_confusion_matrix(
+            true_label=aux_var.get("true_val_label"),
+            pred_label=aux_var.get("pred_val_label"),
+            path=f"{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}.png",
+        )
+        self.__getting_classification_report(
+            true_label=aux_var.get("true_val_label"),
+            pred_label=aux_var.get("pred_val_label"),
+            set_name="VALIDATION",
+            file_path=f"{kwargs.get("path")}/report_{kwargs.get("type_gcn")}.txt",
+        )
+
+    def training(
+        self,
+        dataset_train: Type[dgl.data.DGLDataset],
+        model_name: str,
+        **kwargs
+    ) -> None:
+        """
+        Trains the model.
+
+        Args:
+            dataset_train: dataset of training data
+            model_name: name of model to save it
+            kwargs: auxiliar arguments with keys "epochs", "nodes_hidden_layer", "n_features", "type_gcn", "path"
+        """
+
+        aux_var = {
+            "pred_train_label": [],
+            "true_train_label": [],
+            "acc_train": [],
+            "loss_train": [],
+            "num_correct_train": 0,
+            "num_vals_train": 0,
+            "tag": True
+        }
+
+        train_loader = self.__divide_into_batches(dataset=dataset_train, batch_size=64)
+
+        model = self.__build_gcn_model(
+            type_gcn=kwargs.get("type_gcn"),
+            n_features=kwargs.get("n_features"),
+            hidden_nodes=kwargs.get("nodes_hidden_layer")
+        )
+
+        opt = th.optim.Adam(model.parameters(), lr=0.001)
+
+        for epoch in range(kwargs.get("epochs")):
+            for batched_graph, labels in train_loader:
+                pred = model(batched_graph, batched_graph.ndata["attr"].float())
+                if aux_var.get("tag"):
+                    aux_var.get("pred_train_label").extend(pred.argmax(1))
+                    aux_var.get("true_train_label").extend(labels)
+
+                aux_var["num_correct_train"] += (pred.argmax(1) == labels).sum().item()
+                aux_var["num_vals_train"] += len(labels)
+                loss = F.cross_entropy(pred, labels)
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+            aux_var["tag"] = False
+            aux_var.get("loss_train").extend(loss)
+            aux_var.get("acc_train").extend(aux_var.get("num_correct_train") / aux_var.get("num_vals_train"))
+            print(f"epoch_{epoch}...")
+
+        th.save(model.state_dict(), f"{kwargs.get("path")}/{model_name}.pth")
+
+        aux_var["loss_train"] = [float(x.detach().numpy()) for x in aux_var.get("loss_train")]
+
+        self.__plotting_acc_loss(
+            acc_values=aux_var.get("acc_train"),
+            loss_values=aux_var.get("loss_train"),
+            epochs=kwargs.get("epochs"),
+            path=f"{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png",
+        )
+
+    def testing(
+        self,
+        dataset_val: Type[dgl.data.DGLDataset],
+        model_name: str,
+        **kwargs
+    ) -> None:
+        """
+        Trains and evaluates the model.
+
+        Args:
+            dataset_val: dataset of testing data
+            model_name: name of model to save it
+            kwargs: auxiliar arguments with keys "nodes_hidden_layer", "n_features", "type_gcn", "path"
+        """
+
+        aux_var = {
+            "pred_val_label": [],
+            "true_val_label": [],
+            "num_correct_val": 0,
+            "num_vals_val": 0
+        }
+
+        val_loader = self.__divide_into_batches(dataset=dataset_val, batch_size=64)
+
+        model = self.__build_gcn_model(
+            type_gcn=kwargs.get("type_gcn"),
+            n_features=kwargs.get("n_features"),
+            hidden_nodes=kwargs.get("nodes_hidden_layer")
+        )
+        model.load_state_dict(th.load(f"./Models/{model_name}.pth"))
+        model.eval()
+
+        for batched_graph, labels in val_loader:
+            pred = model(batched_graph, batched_graph.ndata["attr"].float())
+            aux_var["num_correct_val"] += (pred.argmax(1) == labels).sum().item()
+            aux_var["num_vals_val"] += len(labels)
+            aux_var.get("pred_val_label").extend(pred.argmax(1))
+            aux_var.get("true_val_label").extend(labels)
+
         self.__plotting_confusion_matrix(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
