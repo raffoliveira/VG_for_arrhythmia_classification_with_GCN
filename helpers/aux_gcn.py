@@ -254,6 +254,29 @@ class GCNFunctions:
 
         return signals_v1, signals_ii, rr_interval_pos_signals, rr_interval_pre_signals
 
+    def resampling_intra_patient(self, dataset_train: defaultdict, dataset_test: defaultdict) -> Tuple[defaultdict, defaultdict]:
+        """
+        Resampling the datasets, choosing the data in a random way
+
+        Args:
+            dataset_train: training data
+            dataset_test: testing data
+
+        Returns:
+            Resampled datasets
+        """
+
+        classes = ['N', 'S', 'V']
+        split_num = [45847, 944, 3788]
+
+        for idx, class_ in enumerate(classes):
+            total = dataset_train[class_] + dataset_test[class_]
+            np.random.shuffle(total)
+            dataset_train[class_] = total[:split_num[idx]]
+            dataset_test[class_] = total[split_num[idx]:]
+
+        return dataset_train, dataset_test
+
     def get_beats_features(self, signals_v1: dict, signals_ii: dict) -> dict:
         """
         Extract three features of the beats: time, point of beat ii and point of beat v1
