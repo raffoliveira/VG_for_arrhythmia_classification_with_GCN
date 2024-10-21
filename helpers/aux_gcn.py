@@ -670,7 +670,7 @@ class GCNFunctions:
         for (class_, beats_v1), (_, beats_ii) in zip(signals_v1.items(), signals_ii.items()):
             for beat_v1, beat_ii in zip(beats_v1, beats_ii):
                 label = classes.index(class_)
-                adjlist_ = build_graph(series=(beat_v1, beat_ii))
+                adjlist_ = build_graph(series=(beat_v1, beat_ii), time_direction=False)
                 graph = nx.DiGraph(adjlist_)
                 num_nodes = nx.number_of_nodes(graph)
 
@@ -806,17 +806,18 @@ class GCNFunctions:
 
         Returns:
             built model
-        """
+        """ 
 
-        models = {
-            "gcn2": GCN2(n_features, hidden_nodes, 3),
-            "gcn7": GCN7(n_features, hidden_nodes, 3),
-            "gcn60": GCN60(n_features, hidden_nodes, 3),
-            "gcn120": GCN120(n_features, hidden_nodes, 3),
-            "gcn240": GCN240(n_features, hidden_nodes, 3),
-        }
-
-        return models.get(type_gcn)
+        if type_gcn == "gcn2":
+            return GCN2(n_features, hidden_nodes, 3)
+        elif type_gcn == "gcn7":
+            return GCN7(n_features, hidden_nodes, 3)
+        elif type_gcn == "gcn60":
+            return GCN60(n_features, hidden_nodes, 3)
+        elif type_gcn == "gcn120":
+            return GCN120(n_features, hidden_nodes, 3)
+        else:
+            GCN240(n_features, hidden_nodes, 3)        
 
     def training_and_testing(
         self,
@@ -892,18 +893,18 @@ class GCNFunctions:
             acc_values=aux_var.get("acc_train"),
             loss_values=aux_var.get("loss_train"),
             epochs=kwargs.get("epochs"),
-            path=f"{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png",
+            path=f'{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png',
         )
         self.__plotting_confusion_matrix(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
-            path=f"{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}.png",
+            path=f'{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}.png',
         )
         self.__getting_classification_report(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
             set_name="VALIDATION",
-            file_path=f"{kwargs.get("path")}/report_{kwargs.get("type_gcn")}.txt",
+            file_path=f'{kwargs.get("path")}/report_{kwargs.get("type_gcn")}.txt',
         )
 
     def training(
@@ -955,11 +956,11 @@ class GCNFunctions:
                 loss.backward()
                 opt.step()
             aux_var["tag"] = False
-            aux_var.get("loss_train").extend(loss)
-            aux_var.get("acc_train").extend(aux_var.get("num_correct_train") / aux_var.get("num_vals_train"))
+            aux_var.get("loss_train").extend([loss])
+            aux_var.get("acc_train").extend([aux_var.get("num_correct_train") / aux_var.get("num_vals_train")])
             print(f"epoch_{epoch}...")
 
-        th.save(model.state_dict(), f"{kwargs.get("path")}/{model_name}.pth")
+        th.save(model.state_dict(), f'{kwargs.get("path")}/{model_name}.pth')
 
         aux_var["loss_train"] = [float(x.detach().numpy()) for x in aux_var.get("loss_train")]
 
@@ -967,7 +968,7 @@ class GCNFunctions:
             acc_values=aux_var.get("acc_train"),
             loss_values=aux_var.get("loss_train"),
             epochs=kwargs.get("epochs"),
-            path=f"{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}.png",
+            path=f'{kwargs.get("path")}/acc_loss_{kwargs.get("type_gcn")}_{kwargs.get("arch_type")}.png',
         )
 
     def testing(
@@ -999,7 +1000,7 @@ class GCNFunctions:
             n_features=kwargs.get("n_features"),
             hidden_nodes=kwargs.get("nodes_hidden_layer")
         )
-        model.load_state_dict(th.load(f"./Models/{model_name}.pth"))
+        model.load_state_dict(th.load(f'{kwargs.get("path")}/{model_name}.pth'))
         model.eval()
 
         for batched_graph, labels in val_loader:
@@ -1012,11 +1013,11 @@ class GCNFunctions:
         self.__plotting_confusion_matrix(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
-            path=f"{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}.png",
+            path=f'{kwargs.get("path")}/confusion_matrix_{kwargs.get("type_gcn")}_{kwargs.get("arch_type")}.png',
         )
         self.__getting_classification_report(
             true_label=aux_var.get("true_val_label"),
             pred_label=aux_var.get("pred_val_label"),
             set_name="VALIDATION",
-            file_path=f"{kwargs.get("path")}/report_{kwargs.get("type_gcn")}.txt",
+            file_path=f'{kwargs.get("path")}/report_{kwargs.get("type_gcn")}_{kwargs.get("arch_type")}.txt',
         )

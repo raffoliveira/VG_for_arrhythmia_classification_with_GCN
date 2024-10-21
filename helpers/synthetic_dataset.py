@@ -1,8 +1,8 @@
 import torch as th
-import dgl
 import pandas as pd
 import numpy as np
 from dgl.data import DGLDataset
+from dgl import graph, add_self_loop
 
 
 class SyntheticDataset(DGLDataset):
@@ -52,9 +52,9 @@ class SyntheticDataset(DGLDataset):
             label = label_dict[graph_id]
 
             # Create a graph and add it to the list of graphs and labels.
-            g = dgl.graph((src, dst), num_nodes=num_nodes)
+            g = graph((src, dst), num_nodes=num_nodes)
             g.ndata["attr"] = th.tensor(np.array(self.attr_features[graph_id]))
-            g = dgl.add_self_loop(g)
+            g = add_self_loop(g)
             self.graphs.append(g)
             self.labels.append(label)
             del g
