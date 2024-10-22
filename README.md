@@ -100,13 +100,15 @@ This folder comprises three experiments focusing on the vector visibility graph 
 
 Given the considerable computational demand of the VVG method, execution is split into two stages:
 
-1. **Training**: In this stage, the GCN network undergoes training, and the resulting model is saved in the `Models` folder.
+1. **Training**: In this stage, the GCN network undergoes training, and the resulting model is saved in the respective folder.
 
 2. **Testing**: Once the model is saved, it can be loaded for testing purposes.
 
-Before executing each file, the user should set the `MODE=Train` or `MODE=Test` variable in the main method to specify the desired stage. Subsequently, the command below can be executed to run the process.
+Before executing each file, the user should set the parameter `MODE` as `Train` or `Test` in the main method to specify the desired stage using command line argument. Subsequently, the command below can be executed to run the process.
 
 ```
-python file_name.py
+python file_name.py Train
 ```
-
+```
+python file_name.py Test
+```
