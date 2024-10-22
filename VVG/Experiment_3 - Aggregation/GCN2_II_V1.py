@@ -1,5 +1,6 @@
 import os
 import sys
+
 from helpers.synthetic_dataset import SyntheticDataset
 from helpers.aux_gcn import GCNFunctions
 
@@ -9,11 +10,11 @@ if __name__ == "__main__":
     gcn_functions = GCNFunctions()
 
     MODE = sys.argv[1]
-    PATH = "../../../Data"
+    PATH = "../../Data"
     files_test = os.listdir(os.path.join(PATH, "Test"))
     files_train = os.listdir(os.path.join(PATH, "Train"))
 
-    if MODE == 'Train':
+    if MODE == "Train":
         print("segmentating...")
         train_signals_v1, train_signals_ii = (
             gcn_functions.segmentation_signals_v1_ii(
@@ -27,7 +28,7 @@ if __name__ == "__main__":
 
         print("sampling...")
         train_signals_v1 = gcn_functions.sampling_windows_beats(signals=train_signals_v1)
-        train_signals_ii = gcn_functions.sampling_windows_beats(signals=train_signals_ii)
+        train_signals_ii = gcn_functions.sampling_windows_beats(signals=train_signals_ii)    
 
         print("extracting attributes...")
         train_features = gcn_functions.get_beats_features(
@@ -36,7 +37,10 @@ if __name__ == "__main__":
         )
 
         print("converting beats into graphs...")
-        train_edges, train_properties = gcn_functions.convert_beats_in_graphs(signals=train_signals_ii)
+        train_edges, train_properties = gcn_functions.convert_beats_in_graphs_vvg(
+            signals_v1=train_signals_v1,
+            signals_ii=train_signals_ii
+        )
 
         print("creating dataset...")
         set_train = SyntheticDataset(
@@ -51,10 +55,12 @@ if __name__ == "__main__":
             "nodes_hidden_layer": 20,
             "n_features": 3,
             "type_gcn": "gcn2",
-            "path": "./VVG/Experiment_3 - Aggregation/Images2"
+            "path": "./VVG/Experiment_3_Aggregation/Images2",
+            "arch_type": "ii_v1"
         }
         gcn_functions.training(dataset_train=set_train, model_name="model2_ii_v1", **kwargs)
     else:
+        print("segmentating...")
         test_signals_v1, test_signals_ii = (
             gcn_functions.segmentation_signals_v1_ii(
                 path=PATH,
@@ -64,17 +70,24 @@ if __name__ == "__main__":
                 set_name="Test"
             )
         )
-
+        
+        print("sampling...")
         test_signals_v1 = gcn_functions.sampling_windows_beats(signals=test_signals_v1)
         test_signals_ii = gcn_functions.sampling_windows_beats(signals=test_signals_ii)
-
+        
+        print("extracting attributes...")
         test_features = gcn_functions.get_beats_features(
             signals_v1=test_signals_v1,
             signals_ii=test_signals_ii
         )
 
-        val_edges, val_properties = gcn_functions.convert_beats_in_graphs(signals=test_signals_ii)
+        print("converting beats into graphs...")
+        val_edges, val_properties = gcn_functions.convert_beats_in_graphs_vvg(
+            signals_v1=test_signals_v1,
+            signals_ii=test_signals_ii
+        )
 
+        print("creating dataset...")
         set_val = SyntheticDataset(
             attr_edges=val_edges,
             attr_properties=val_properties,
@@ -86,6 +99,7 @@ if __name__ == "__main__":
             "nodes_hidden_layer": 20,
             "n_features": 3,
             "type_gcn": "gcn2",
-            "path": "./VVG/Experiment_3 - Aggregation/Images2"
+            "path": "./VVG/Experiment_3_Aggregation/Images2",
+            "arch_type": "ii_v1"
         }
         gcn_functions.testing(dataset_val=set_val, model_name="model2_ii_v1", **kwargs)

@@ -1,5 +1,6 @@
 import os
 import sys
+
 from helpers.synthetic_dataset import SyntheticDataset
 from helpers.aux_gcn import GCNFunctions
 
@@ -9,7 +10,7 @@ if __name__ == "__main__":
     gcn_functions = GCNFunctions()
 
     MODE = sys.argv[1]
-    PATH = "../../../Data"
+    PATH = "../../Data"
     files_test = os.listdir(os.path.join(PATH, "Test"))
     files_train = os.listdir(os.path.join(PATH, "Train"))
 
@@ -59,10 +60,11 @@ if __name__ == "__main__":
         print("training...")
         kwargs = {
             "epochs": 150,
-            "nodes_hidden_layer": 20,
+            "nodes_hidden_layer": 50,
             "n_features": 5,
             "type_gcn": "gcn7",
-            "path": "./VVG/Experiment_3 - Aggregation/Images7"
+            "path": "./VVG/Experiment_3_Aggregation/Images7",
+            "arch_type": "rr"
         }
         gcn_functions.training(dataset_train=set_train, model_name="model7_rr", **kwargs)
     else:
@@ -105,9 +107,10 @@ if __name__ == "__main__":
 
         print("testing...")
         kwargs = {
-            "nodes_hidden_layer": 20,
+            "nodes_hidden_layer": 50,
             "n_features": 5,
             "type_gcn": "gcn7",
-            "path": "./VVG/Experiment_3 - Aggregation/Images7"
+            "path": "./VVG/Experiment_3_Aggregation/Images7",
+            "arch_type": "rr"
         }
         gcn_functions.testing(dataset_val=set_val, model_name="model7_rr", **kwargs)

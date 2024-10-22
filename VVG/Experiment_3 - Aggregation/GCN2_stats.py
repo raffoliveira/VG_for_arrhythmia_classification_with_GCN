@@ -1,5 +1,6 @@
 import os
 import sys
+
 from helpers.synthetic_dataset import SyntheticDataset
 from helpers.aux_gcn import GCNFunctions
 
@@ -9,7 +10,7 @@ if __name__ == "__main__":
     gcn_functions = GCNFunctions()
 
     MODE = sys.argv[1]
-    PATH = "../../../Data"
+    PATH = "../../Data"
     files_test = os.listdir(os.path.join(PATH, "Test"))
     files_train = os.listdir(os.path.join(PATH, "Train"))
 
@@ -62,7 +63,8 @@ if __name__ == "__main__":
             "nodes_hidden_layer": 20,
             "n_features": 22,
             "type_gcn": "gcn2",
-            "path": "./VVG/Experiment_3 - Aggregation/Images2"
+            "path": "./VVG/Experiment_3_Aggregation/Images2",
+            "arch_type": "stats"
         }
         gcn_functions.training(dataset_train=set_train, model_name="model2_stats", **kwargs)
     else:
@@ -108,6 +110,7 @@ if __name__ == "__main__":
             "nodes_hidden_layer": 20,
             "n_features": 22,
             "type_gcn": "gcn2",
-            "path": "./VVG/Experiment_3 - Aggregation/Images2"
+            "path": "./VVG/Experiment_3_Aggregation/Images2",
+            "arch_type": "stats"
         }
         gcn_functions.testing(dataset_val=set_val, model_name="model2_stats", **kwargs)
