@@ -72,7 +72,7 @@ The dataset utilized originates from the [MIT-BIH](https://physionet.org/content
 
 # Reproduce
 
-The visibility graph (VG) and vector visibility graph (VVG) were elucidated in another GitHub project of mine, [VG_VVG_implementation](https://github.com/raffoliveira/VG_VVG_implementation). Notably, the implementation outlined in that project is employed throughout all experiments presented here.
+The Vector visibility graph (VVG) were elucidated in another GitHub project of mine, [ts2vvg](https://github.com/raffoliveira/ts2vvg). Notably, the implementation outlined in that project is employed throughout all experiments presented here.
 
 ## VG Folder
 
