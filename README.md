@@ -112,3 +112,7 @@ python file_name.py Train
 ```
 python file_name.py Test
 ```
+
+# Acknowledgment:
+
+This project was supported by [FAPEMIG](http://www.fapemig.br/pt/) (APQ-01518-21). We thank them for their valuable financial contribution.
